@@ -10,27 +10,37 @@ Real-Time Collaborative Repository Workspace
 
 ---
 
-# 1. Technical Overview
+# 1. Introduction
 
-DevSync is a full-stack web application designed to provide repository-based real-time collaboration for development teams.
+DevSync is a full-stack web application designed to provide a shared repository workspace where multiple developers can collaborate on the same project in real time.
 
-The platform enables users to create repositories, manage project files, invite collaborators, and edit code collaboratively through real-time synchronization.
+The platform focuses on solving project synchronization challenges commonly faced by students and development teams. Instead of exchanging project files manually or relying on continuous synchronization workflows, all collaborators work within a single shared repository environment.
 
-The system follows a client-server architecture with WebSocket communication for live updates.
+This document defines the technical architecture, technology stack, system modules, and implementation requirements necessary for building the platform.
 
 ---
 
 # 2. System Architecture
 
-Frontend (React.js)
+DevSync follows a client-server architecture.
+
+The frontend is responsible for rendering the user interface and handling user interactions.
+
+The backend manages authentication, repository operations, file management, data persistence, and real-time communication.
+
+MongoDB is used for storing application data, while Socket.IO is used to establish persistent connections between connected collaborators.
+
+High-level architecture:
+
+Frontend (React)
 
 ↓
 
-REST API + Socket.IO
+Backend API (Node.js + Express)
 
 ↓
 
-Backend (Node.js + Express)
+Socket.IO Layer
 
 ↓
 
@@ -40,379 +50,316 @@ MongoDB Database
 
 # 3. Technology Stack
 
-## Frontend
+### Frontend
 
-* React.js
+The frontend will be developed using React.js.
+
+React is selected because it provides component-based architecture, efficient state management, and a large ecosystem suitable for building interactive applications.
+
+Additional frontend technologies:
+
 * React Router DOM
-* Tailwind CSS
 * Axios
+* Tailwind CSS
 * Socket.IO Client
 
-Purpose:
+---
 
-* User Interface
-* Repository Management
-* File Explorer
-* Code Editor
-* Real-Time Updates
+### Backend
+
+The backend will be developed using Node.js and Express.js.
+
+Express provides a lightweight and scalable framework for handling REST APIs and application services.
+
+Backend responsibilities include:
+
+* User authentication
+* Repository management
+* File operations
+* Collaborator management
+* Export services
+* Real-time event processing
 
 ---
 
-## Backend
+### Database
 
-* Node.js
-* Express.js
+MongoDB will be used as the primary database.
 
-Purpose:
+MongoDB is suitable because repository structures, folders, files, and collaboration metadata can be represented efficiently using document-based storage.
 
-* Authentication
-* Repository Management
-* File Operations
-* API Services
-* WebSocket Handling
+Mongoose will be used for schema management and database interaction.
 
 ---
 
-## Database
+### Real-Time Communication
 
-* MongoDB
-* Mongoose ODM
+Socket.IO will be used to enable bidirectional communication between the server and connected clients.
 
-Purpose:
+The Socket.IO layer is responsible for:
 
-* User Data
-* Repository Data
-* File Data
-* Collaborator Data
-
----
-
-## Real-Time Communication
-
-* Socket.IO
-
-Purpose:
-
-* Code Synchronization
-* File Synchronization
-* User Presence Updates
+* Real-time code synchronization
+* File system synchronization
+* User presence tracking
+* Workspace event broadcasting
 
 ---
 
-## Authentication
+### Authentication
 
-* JWT (JSON Web Token)
-* bcrypt
+Authentication will be implemented using JWT.
 
-Purpose:
+Passwords will be securely hashed using bcrypt before storage.
 
-* Secure Login
-* Session Verification
-* Password Encryption
+Protected routes will require valid authentication tokens before access is granted.
 
 ---
 
-# 4. Core Modules
+# 4. Core System Modules
 
 ## Authentication Module
 
-Functions:
+The authentication module manages user registration, login, session validation, and access control.
 
-* Register User
-* Login User
-* Logout User
-* Verify JWT Token
+Responsibilities:
+
+* Create user accounts
+* Authenticate users
+* Generate JWT tokens
+* Validate authenticated requests
 
 ---
 
 ## Repository Module
 
-Functions:
+The repository module manages repository lifecycle operations.
 
-* Create Repository
-* Delete Repository
-* Open Repository
-* List User Repositories
+Responsibilities:
+
+* Create repositories
+* Delete repositories
+* Retrieve repository information
+* Manage repository ownership
+
+Each repository acts as an isolated collaborative workspace.
 
 ---
 
 ## Collaborator Module
 
-Functions:
+The collaborator module manages repository access.
 
-* Invite Collaborators
-* Remove Collaborators
-* View Members
+Responsibilities:
+
+* Add collaborators
+* Remove collaborators
+* Verify repository permissions
+* Retrieve repository members
+
+Only authorized users should be allowed to access repository resources.
 
 ---
 
 ## File Management Module
 
-Functions:
+The file management module handles repository structure.
 
-* Create File
-* Delete File
-* Rename File
-* Create Folder
-* Delete Folder
+Responsibilities:
+
+* Create files
+* Delete files
+* Rename files
+* Create folders
+* Delete folders
+* Maintain folder hierarchy
+
+All operations must be persisted in the database.
 
 ---
 
-## Real-Time Sync Module
+## Real-Time Synchronization Module
 
-Functions:
+This module is the core component of the platform.
 
-* Sync Code Changes
-* Sync File Creation
-* Sync File Deletion
-* Sync File Renaming
-* Sync Folder Operations
+Responsibilities:
+
+* Synchronize code changes
+* Synchronize file operations
+* Synchronize folder operations
+* Broadcast repository updates
+
+Whenever a collaborator performs an action, the update is propagated to all connected members of the repository.
 
 ---
 
 ## Export Module
 
-Functions:
+The export module allows repositories to be downloaded for local development.
 
-* Generate ZIP File
-* Download Repository
+Responsibilities:
 
----
+* Generate repository structure
+* Package files into ZIP format
+* Deliver downloadable archive
 
-# 5. Database Collections
-
-## Users Collection
-
-Stores:
-
-* User Information
-* Login Credentials
-* Repository References
-
-Fields:
-
-* _id
-* username
-* email
-* password
-* repositories
+The exported repository should preserve its original folder hierarchy and file contents.
 
 ---
 
-## Repositories Collection
+# 5. Database Design Requirements
 
-Stores:
+The database must support:
 
-* Repository Information
-* Members
-* Ownership Details
+* User management
+* Repository ownership
+* Collaborator relationships
+* File storage
+* Folder hierarchy
+* Repository metadata
 
-Fields:
+Primary collections:
 
-* _id
-* name
-* owner
-* collaborators
-* createdAt
+* Users
+* Repositories
+* Files
+* Folders
 
----
-
-## Files Collection
-
-Stores:
-
-* File Structure
-* File Content
-
-Fields:
-
-* _id
-* repositoryId
-* fileName
-* fileType
-* content
-* parentFolder
+Each repository must maintain references to its associated files, folders, owner, and collaborators.
 
 ---
 
-## Folders Collection
+# 6. API Design Requirements
 
-Stores:
+The backend exposes REST APIs for application functionality.
 
-* Folder Structure
+Major API groups include:
 
-Fields:
+### Authentication APIs
 
-* _id
-* repositoryId
-* folderName
-* parentFolder
+Used for:
 
----
-
-# 6. API Requirements
-
-## Authentication APIs
-
-POST /api/auth/register
-
-POST /api/auth/login
-
-GET /api/auth/profile
+* Registration
+* Login
+* Profile retrieval
 
 ---
 
-## Repository APIs
+### Repository APIs
 
-POST /api/repositories
+Used for:
 
-GET /api/repositories
-
-GET /api/repositories/:id
-
-DELETE /api/repositories/:id
+* Repository creation
+* Repository retrieval
+* Repository deletion
 
 ---
 
-## Collaborator APIs
+### Collaborator APIs
 
-POST /api/repositories/:id/invite
+Used for:
 
-DELETE /api/repositories/:id/member
-
----
-
-## File APIs
-
-POST /api/files
-
-PATCH /api/files/:id
-
-DELETE /api/files/:id
-
-GET /api/files/:id
+* Inviting members
+* Managing access
 
 ---
 
-## Export APIs
+### File APIs
 
-GET /api/repositories/:id/export
+Used for:
 
----
-
-# 7. Socket Events
-
-## Repository Join
-
-JOIN_REPOSITORY
-
-USER_JOINED
-
-USER_LEFT
+* File creation
+* File updates
+* File deletion
+* Folder operations
 
 ---
 
-## File Events
+### Export APIs
 
-FILE_CREATED
+Used for:
 
-FILE_DELETED
-
-FILE_RENAMED
-
-FOLDER_CREATED
-
-FOLDER_DELETED
+* Repository export
+* ZIP generation
 
 ---
 
-## Editor Events
+# 7. Real-Time Event Requirements
 
-CODE_CHANGE
+The system must support real-time events through Socket.IO.
 
-SYNC_CODE
+Supported events include:
 
----
+* Repository join
+* Repository leave
+* User presence updates
+* File creation
+* File deletion
+* File rename
+* Folder creation
+* Folder deletion
+* Code modification
 
-## Presence Events
-
-ONLINE_USERS
-
-USER_CONNECTED
-
-USER_DISCONNECTED
+All events must be synchronized across active collaborators with minimal latency.
 
 ---
 
 # 8. Security Requirements
 
-Password Hashing:
+The platform must implement the following security measures:
 
-* bcrypt
+* Password hashing using bcrypt
+* JWT-based authentication
+* Protected API routes
+* Repository-level access control
+* Input validation and sanitization
 
-Authentication:
-
-* JWT
-
-Protected Routes:
-
-* Middleware Validation
-
-Repository Access Control:
-
-* Owner Permissions
-* Collaborator Permissions
+Only repository members should be able to access repository resources.
 
 ---
 
 # 9. Performance Requirements
 
-Code synchronization latency:
+The platform should provide a responsive collaboration experience.
 
-< 500ms
+Target metrics:
 
-File operation synchronization:
+* Repository loading under 3 seconds
+* Real-time update latency under 500 milliseconds
+* Stable synchronization across multiple connected users
 
-< 1 second
-
-Repository loading:
-
-< 3 seconds
+The system should support multiple active repositories simultaneously without significant performance degradation.
 
 ---
 
 # 10. Deployment Requirements
 
-Frontend:
+Frontend deployment:
 
 * Vercel
 
-Backend:
+Backend deployment:
 
 * Render
 
-Database:
+Database hosting:
 
 * MongoDB Atlas
 
+Environment variables will be used for configuration management and credential storage.
+
 ---
 
-# 11. Future Technical Enhancements
+# 11. Future Enhancements
 
-Phase 2:
+The architecture should remain extensible to support future features without major restructuring.
+
+Potential future enhancements include:
 
 * Activity Logs
 * Version History
 * Repository Snapshots
-
-Phase 3:
-
 * Built-In Code Execution
-* AI Assistant Integration
-* AI Code Review
-* AI Suggestions
+* AI-Powered Assistance
+* Advanced Repository Analytics
 
-Phase 4:
-
-* Docker-Based Project Execution
-* Advanced Collaboration Tools
+The initial implementation should be designed with modularity in mind so that future features can be integrated without affecting the core collaboration workflow.
