@@ -1,28 +1,16 @@
 // features/workspace/components/FileExplorer/FileContextMenu.jsx
+// Stage 6 — real create / rename / delete actions.
+// Alerts are gone. Actions call handler functions from useFileTree.
 
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-const menuItem = (label, onClick, danger = false) => ({ label, onClick, danger })
-
-export function FileContextMenu({ contextMenu, onClose }) {
+export function FileContextMenu({ contextMenu, onClose, onCreateFile, onCreateFolder, onRename, onDelete }) {
   if (!contextMenu) return null
 
   const { x, y, node } = contextMenu
   const isFolder = node.type === 'folder'
 
-  const items = isFolder
-    ? [
-        menuItem('New File',    () => { alert('New file — Stage 6'); onClose() }),
-        menuItem('New Folder',  () => { alert('New folder — Stage 6'); onClose() }),
-        menuItem('Rename',      () => { alert('Rename — Stage 6'); onClose() }),
-        menuItem('Delete',      () => { alert('Delete — Stage 6'); onClose() }, true),
-      ]
-    : [
-        menuItem('Rename',      () => { alert('Rename — Stage 6'); onClose() }),
-        menuItem('Delete',      () => { alert('Delete — Stage 6'); onClose() }, true),
-      ]
-
-  // Close on click outside or Escape
+  // Close on outside click or Escape
   useEffect(() => {
     const handle = (e) => {
       if (e.type === 'keydown' && e.key !== 'Escape') return
@@ -36,6 +24,18 @@ export function FileContextMenu({ contextMenu, onClose }) {
     }
   }, [onClose])
 
+  const items = isFolder
+    ? [
+        { label: 'New File',   action: () => { onCreateFile(node._id);   onClose() } },
+        { label: 'New Folder', action: () => { onCreateFolder(node._id); onClose() } },
+        { label: 'Rename',     action: () => { onRename(node);           onClose() } },
+        { label: 'Delete',     action: () => { onDelete(node);           onClose() }, danger: true },
+      ]
+    : [
+        { label: 'Rename',     action: () => { onRename(node);           onClose() } },
+        { label: 'Delete',     action: () => { onDelete(node);           onClose() }, danger: true },
+      ]
+
   return (
     <div
       onMouseDown={(e) => e.stopPropagation()}
@@ -46,14 +46,14 @@ export function FileContextMenu({ contextMenu, onClose }) {
         border: '1px solid #30363D',
         borderRadius: '6px',
         padding: '4px',
-        minWidth: '150px',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+        minWidth: '160px',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
       }}
     >
       {items.map((item) => (
         <button
           key={item.label}
-          onClick={item.onClick}
+          onClick={item.action}
           style={{
             display: 'block', width: '100%', textAlign: 'left',
             padding: '7px 12px', borderRadius: '4px',

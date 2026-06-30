@@ -113,18 +113,24 @@ export const buildFileTree = (folders = [], files = []) => {
   // Place each folder under its parent (or at root if no parentFolderId)
   folders.forEach((folder) => {
     const node = folderMap[folder._id]
-    if (folder.parentFolderId && folderMap[folder.parentFolderId]) {
-      folderMap[folder.parentFolderId].children.push(node)
-    } else {
-      rootNodes.push(node)
+
+    const parentId = folder.parentFolderId ?? folder.parentFolder ?? null
+
+    if (parentId && folderMap[parentId]) {
+      folderMap[parentId].children.push(node)
+  } else {
+    rootNodes.push(node)
     }
   })
 
   // Place each file under its parent folder (or at root)
   files.forEach((file) => {
     const fileNode = { ...file, type: 'file' }
-    if (file.folderId && folderMap[file.folderId]) {
-      folderMap[file.folderId].children.push(fileNode)
+
+    const folderId = file.folderId ?? file.folder ?? null
+
+    if (folderId && folderMap[folderId]) {
+      folderMap[folderId].children.push(fileNode)
     } else {
       rootNodes.push(fileNode)
     }

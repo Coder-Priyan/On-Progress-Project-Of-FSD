@@ -1,39 +1,145 @@
 // pages/WorkspacePage.jsx
+// Stage 6 — real API wired. Mock data removed.
+// useWorkspace fetches repo name. useFileTree fetches real files/folders.
+// useEditor fetches file content on open and auto-saves on change.
 
+import { useState, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 
-import { useFileTree }  from '@/features/workspace/hooks/useFileTree'
-import { useTabs }      from '@/features/workspace/hooks/useTabs'
-import { useEditor }    from '@/features/workspace/hooks/useEditor'
-import { usePresence }  from '@/features/workspace/hooks/usePresence'
+import { useWorkspace }  from '@/features/workspace/hooks/useWorkspace'
+import { useFileTree }   from '@/features/workspace/hooks/useFileTree'
+import { useTabs }       from '@/features/workspace/hooks/useTabs'
+import { useEditor }     from '@/features/workspace/hooks/useEditor'
+import { usePresence }   from '@/features/workspace/hooks/usePresence'
 
-import { WorkspaceNavbar }  from '@/features/workspace/components/Toolbar/WorkspaceNavbar'
-import { FileTree }         from '@/features/workspace/components/FileExplorer/FileTree'
-import { FileContextMenu }  from '@/features/workspace/components/FileExplorer/FileContextMenu'
-import { TabBar }           from '@/features/workspace/components/Editor/TabBar'
-import { EditorPane }       from '@/features/workspace/components/Editor/EditorPane'
+import { WorkspaceNavbar }   from '@/features/workspace/components/Toolbar/WorkspaceNavbar'
+import { FileTree }          from '@/features/workspace/components/FileExplorer/FileTree'
+import { FileContextMenu }   from '@/features/workspace/components/FileExplorer/FileContextMenu'
+import { TabBar }            from '@/features/workspace/components/Editor/TabBar'
+import { EditorPane }        from '@/features/workspace/components/Editor/EditorPane'
 import { EditorPlaceHolder } from '@/features/workspace/components/Editor/EditorPlaceHolder'
-import { PresenceList }     from '@/features/workspace/components/CollabPane/PresenceList'
-import { InviteForm }       from '@/features/workspace/components/CollabPane/InviteForm'
+import { PresenceList }      from '@/features/workspace/components/CollabPane/PresenceList'
+import { InviteForm }        from '@/features/workspace/components/CollabPane/InviteForm'
 
-// Repo name is hardcoded for Stage 5 — Stage 6 fetches it from API
-const MOCK_REPO_NAME = 'my-project'
+// ── New File / New Folder inline input ────────────────────────────────────────
+// Appears at the bottom of the file explorer when creating a new item.
+function NewItemInput({ placeholder, onConfirm, onCancel }) {
+  const [value, setValue] = useState('')
+  const inputRef = useCallback((el) => el?.focus(), [])
 
+  const confirm = () => {
+    if (value.trim()) onConfirm(value.trim())
+    else onCancel()
+  }
+
+  return (
+    <div style={{ padding: '4px 12px' }}>
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter')  confirm()
+          if (e.key === 'Escape') onCancel()
+        }}
+        onBlur={onCancel}
+        placeholder={placeholder}
+        style={{
+          width: '100%', padding: '5px 8px', borderRadius: '4px',
+          backgroundColor: '#21262D', border: '1px solid #7C5CFC',
+          color: '#E6EDF3', fontSize: '12px', outline: 'none',
+          fontFamily: 'inherit', boxSizing: 'border-box',
+        }}
+      />
+    </div>
+  )
+}
+
+// ── Rename inline input ────────────────────────────────────────────────────────
+function RenameInput({ node, onConfirm, onCancel }) {
+  const [value, setValue] = useState(node.name)
+  const inputRef = useCallback((el) => { if (el) { el.focus(); el.select() } }, [])
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter')  onConfirm(node._id, value.trim())
+        if (e.key === 'Escape') onCancel()
+      }}
+      onBlur={() => onConfirm(node._id, value.trim())}
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        width: '100%', padding: '2px 6px', borderRadius: '3px',
+        backgroundColor: '#21262D', border: '1px solid #7C5CFC',
+        color: '#E6EDF3', fontSize: '12px', outline: 'none',
+        fontFamily: 'inherit', boxSizing: 'border-box',
+      }}
+    />
+  )
+}
+
+// ── WorkspacePage ─────────────────────────────────────────────────────────────
 function WorkspacePage() {
   const { repoId } = useParams()
 
-  const { tree, selectedFileId, contextMenu, toggleFolder, selectFile, openContextMenu, closeContextMenu } = useFileTree()
-  const { tabs, activeTab, openTab, closeTab, switchTab } = useTabs()
-  const { getContent, setContent, syncStatus } = useEditor()
+  const { repo }       = useWorkspace(repoId)
   const { onlineUsers } = usePresence()
 
-  // When a file is clicked in the tree
-  const handleFileClick = (file) => {
+  const {
+    tree, isLoading: treeLoading, error: treeError,
+    selectedFileId, contextMenu, renamingNode, isFolderOpen,
+    selectFile, toggleFolder, openContextMenu, closeContextMenu,
+    setRenamingNode,
+    handleCreateFile, handleCreateFolder,
+    handleRenameFile, handleRenameFolder,
+    handleDeleteFile, handleDeleteFolder,
+  } = useFileTree(repoId)
+
+  const { tabs, activeTab, openTab, closeTab, switchTab } = useTabs()
+
+  const { getContent, setContent, loadFile, isFileLoading, syncStatus } = useEditor(repoId)
+
+  // ── New item state (inline input at bottom of explorer) ───────────────────
+  const [newItem, setNewItem] = useState(null) // { type: 'file'|'folder', parentId }
+
+  // ── File click — open tab + load content ──────────────────────────────────
+  const handleFileClick = useCallback((file) => {
     selectFile(file._id)
     openTab(file)
+    loadFile(file)
+  }, [selectFile, openTab, loadFile])
+
+  // ── Context menu action handlers ──────────────────────────────────────────
+  const handleContextCreateFile = (parentId) => {
+    setNewItem({ type: 'file', parentId })
   }
 
-  // Active file object (for EditorPane)
+  const handleContextCreateFolder = (parentId) => {
+    setNewItem({ type: 'folder', parentId })
+  }
+
+  const handleContextRename = (node) => {
+    setRenamingNode(node)
+  }
+
+  const handleContextDelete = async (node) => {
+    const confirmed = window.confirm(
+      `Delete "${node.name}"${node.type === 'folder' ? ' and all its contents' : ''}?`
+    )
+    if (!confirmed) return
+    if (node.type === 'file')   await handleDeleteFile(node._id)
+    if (node.type === 'folder') await handleDeleteFolder(node._id)
+  }
+
+  const handleNewItemConfirm = async (name) => {
+    if (newItem.type === 'file')   await handleCreateFile(name, newItem.parentId)
+    if (newItem.type === 'folder') await handleCreateFolder(name, newItem.parentId)
+    setNewItem(null)
+  }
+
   const activeFile = tabs.find((t) => t._id === activeTab) ?? null
 
   return (
@@ -43,17 +149,17 @@ function WorkspacePage() {
       overflow: 'hidden', backgroundColor: '#0D1117',
     }}>
 
-      {/* ── Top navbar ──────────────────────────────────────────────────── */}
+      {/* ── Top navbar ────────────────────────────────────────────────── */}
       <WorkspaceNavbar
-        repoName={MOCK_REPO_NAME}
+        repoName={repo?.name ?? '…'}
         onlineUsers={onlineUsers}
         syncStatus={syncStatus}
       />
 
-      {/* ── Main body ───────────────────────────────────────────────────── */}
+      {/* ── Main body ─────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
 
-        {/* ── Left: File Explorer ─────────────────────────────────────── */}
+        {/* ── Left: File Explorer ───────────────────────────────────── */}
         <div style={{
           width: '220px', flexShrink: 0,
           backgroundColor: '#161B22',
@@ -61,29 +167,94 @@ function WorkspacePage() {
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
         }}>
-          {/* Explorer header */}
+          {/* Explorer header + new file/folder buttons */}
           <div style={{
             padding: '10px 12px 6px',
-            fontSize: '10px', fontWeight: '600',
-            color: '#484F58', letterSpacing: '0.08em',
-            textTransform: 'uppercase', flexShrink: 0,
+            display: 'flex', alignItems: 'center',
+            justifyContent: 'space-between', flexShrink: 0,
           }}>
-            Explorer
+            <span style={{
+              fontSize: '10px', fontWeight: '600',
+              color: '#484F58', letterSpacing: '0.08em', textTransform: 'uppercase',
+            }}>
+              Explorer
+            </span>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              {/* New file */}
+              <button
+                onClick={() => setNewItem({ type: 'file', parentId: null })}
+                title="New File"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#484F58', padding: '2px', display: 'flex' }}
+                onMouseEnter={(e) => e.currentTarget.style.color = '#E6EDF3'}
+                onMouseLeave={(e) => e.currentTarget.style.color = '#484F58'}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="12" y1="18" x2="12" y2="12"/>
+                  <line x1="9" y1="15" x2="15" y2="15"/>
+                </svg>
+              </button>
+              {/* New folder */}
+              <button
+                onClick={() => setNewItem({ type: 'folder', parentId: null })}
+                title="New Folder"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#484F58', padding: '2px', display: 'flex' }}
+                onMouseEnter={(e) => e.currentTarget.style.color = '#E6EDF3'}
+                onMouseLeave={(e) => e.currentTarget.style.color = '#484F58'}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                  <line x1="12" y1="11" x2="12" y2="17"/>
+                  <line x1="9" y1="14" x2="15" y2="14"/>
+                </svg>
+              </button>
+            </div>
           </div>
 
-          {/* File tree — scrollable */}
+          {/* Tree — scrollable */}
           <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-            <FileTree
-              tree={tree}
-              selectedFileId={selectedFileId}
-              onFileClick={handleFileClick}
-              onToggleFolder={toggleFolder}
-              onContextMenu={openContextMenu}
-            />
+            {treeLoading && (
+              <div style={{ padding: '16px 12px', fontSize: '11px', color: '#484F58' }}>
+                Loading files…
+              </div>
+            )}
+            {treeError && (
+              <div style={{ padding: '16px 12px', fontSize: '11px', color: '#F85149' }}>
+                {treeError}
+              </div>
+            )}
+            {!treeLoading && !treeError && (
+              <FileTree
+                tree={tree}
+                selectedFileId={selectedFileId}
+                renamingNode={renamingNode}
+                isFolderOpen={isFolderOpen}
+                onFileClick={handleFileClick}
+                onToggleFolder={toggleFolder}
+                onContextMenu={openContextMenu}
+                onRenameConfirm={(id, name, type) =>
+                  type === 'file'
+                    ? handleRenameFile(id, name)
+                    : handleRenameFolder(id, name)
+                }
+                onRenameCancel={() => setRenamingNode(null)}
+                RenameInput={RenameInput}
+              />
+            )}
+
+            {/* Inline new item input */}
+            {newItem && (
+              <NewItemInput
+                placeholder={newItem.type === 'file' ? 'filename.js' : 'folder-name'}
+                onConfirm={handleNewItemConfirm}
+                onCancel={() => setNewItem(null)}
+              />
+            )}
           </div>
         </div>
 
-        {/* ── Center: Editor ──────────────────────────────────────────── */}
+        {/* ── Center: Editor ────────────────────────────────────────── */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
           <TabBar
             tabs={tabs}
@@ -92,17 +263,26 @@ function WorkspacePage() {
             onClose={closeTab}
           />
           {activeFile ? (
-            <EditorPane
-              file={activeFile}
-              content={getContent(activeFile._id)}
-              onChange={setContent}
-            />
+            isFileLoading(activeFile._id) ? (
+              <div style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                backgroundColor: '#0D1117', color: '#484F58', fontSize: '12px',
+              }}>
+                Loading…
+              </div>
+            ) : (
+              <EditorPane
+                file={activeFile}
+                content={getContent(activeFile._id)}
+                onChange={setContent}
+              />
+            )
           ) : (
-            <EditorPlaceHolder repoName={MOCK_REPO_NAME} />
+            <EditorPlaceHolder repoName={repo?.name} />
           )}
         </div>
 
-        {/* ── Right: Collab Panel ─────────────────────────────────────── */}
+        {/* ── Right: Collab Panel ───────────────────────────────────── */}
         <div style={{
           width: '200px', flexShrink: 0,
           backgroundColor: '#161B22',
@@ -113,13 +293,13 @@ function WorkspacePage() {
           <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
             <PresenceList onlineUsers={onlineUsers} />
             <div style={{ height: '1px', backgroundColor: '#30363D', margin: '8px 0' }} />
-            <InviteForm />
+            <InviteForm repoId={repoId} />
           </div>
         </div>
 
       </div>
 
-      {/* ── Status bar ──────────────────────────────────────────────────── */}
+      {/* ── Status bar ────────────────────────────────────────────────── */}
       <div style={{
         height: '24px', flexShrink: 0,
         backgroundColor: '#161B22',
@@ -138,13 +318,18 @@ function WorkspacePage() {
             </span>
           )}
         </div>
-        <span style={{ fontSize: '11px', color: '#484F58' }}>
-          DevSync
-        </span>
+        <span style={{ fontSize: '11px', color: '#484F58' }}>DevSync</span>
       </div>
 
-      {/* Context menu — rendered at root level so it escapes panel overflow */}
-      <FileContextMenu contextMenu={contextMenu} onClose={closeContextMenu} />
+      {/* Context menu */}
+      <FileContextMenu
+        contextMenu={contextMenu}
+        onClose={closeContextMenu}
+        onCreateFile={handleContextCreateFile}
+        onCreateFolder={handleContextCreateFolder}
+        onRename={handleContextRename}
+        onDelete={handleContextDelete}
+      />
 
     </div>
   )

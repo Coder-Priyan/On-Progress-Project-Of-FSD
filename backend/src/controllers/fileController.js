@@ -9,7 +9,7 @@ const Repository = require('../models/Repository');
 const createFile = async (req, res) => {
   try {
     const { repositoryId } = req.params;
-    const { name, content } = req.body;
+    const { name, content, folderId } = req.body;
 
     // Validate file name
     if (!name) {
@@ -49,6 +49,7 @@ const createFile = async (req, res) => {
       content: content || '',
       repository: repository._id,
       createdBy: req.user._id,
+      folder: folderId || null, 
     });
 
     // 5. Return success response
@@ -177,7 +178,7 @@ const getFileById = async (req, res) => {
 const updateFile = async (req, res) => {
   try {
     const { fileId } = req.params;
-    const { name, content } = req.body;
+    const { name, content, folderId } = req.body;
 
     // 1. Find file by ID and populate repository
     const file = await File.findById(fileId).populate('repository');
@@ -211,7 +212,9 @@ const updateFile = async (req, res) => {
     if (content !== undefined) {
       file.content = content;
     }
-
+    if (folderId !== undefined) {
+      file.folder = folderId;
+    }
     // 6. Save file
     await file.save();
 

@@ -1,6 +1,6 @@
 // features/workspace/components/FileExplorer/TreeNode.jsx
 
-import { getFileColor, getFileExtension } from '@/utils/fileHelpers'
+import { getFileColor } from '@/utils/fileHelpers'
 
 const INDENT = 12
 
@@ -17,20 +17,35 @@ function FolderIcon({ isOpen }) {
 }
 
 function FileColorDot({ filename }) {
-  const color = getFileColor(filename)
   return (
     <div style={{
       width: '8px', height: '8px', borderRadius: '2px',
-      backgroundColor: color, flexShrink: 0,
+      backgroundColor: getFileColor(filename), flexShrink: 0,
     }} />
   )
 }
 
-export function TreeNode({ node, depth = 0, selectedFileId, onFileClick, onToggleFolder, onContextMenu }) {
-  const isSelected = node._id === selectedFileId
+export function TreeNode({
+  node,
+  depth = 0,
+  selectedFileId,
+  renamingNode,
+  isFolderOpen,
+  onFileClick,
+  onToggleFolder,
+  onContextMenu,
+  onRenameConfirm,
+  onRenameCancel,
+  RenameInput,
+}) {
+  const isSelected  = node._id === selectedFileId
+  const isRenaming  = renamingNode?._id === node._id
   const paddingLeft = 12 + depth * INDENT
 
+  // ── Folder ──────────────────────────────────────────────────────────────
   if (node.type === 'folder') {
+    const isOpen = isFolderOpen(node._id)
+
     return (
       <div>
         {/* Folder row */}
@@ -54,35 +69,58 @@ export function TreeNode({ node, depth = 0, selectedFileId, onFileClick, onToggl
             fill="none" stroke="#484F58" strokeWidth="2.5" strokeLinecap="round"
             style={{
               flexShrink: 0,
-              transform: node.isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+              transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
               transition: 'transform 120ms ease',
             }}
           >
             <polyline points="9 18 15 12 9 6"/>
           </svg>
-          <FolderIcon isOpen={node.isOpen} />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {node.name}
-          </span>
+
+          <FolderIcon isOpen={isOpen} />
+
+          {/* Name or rename input */}
+          {isRenaming ? (
+            <div
+              style={{ flex: 1, minWidth: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <RenameInput
+                node={node}
+                onConfirm={(id, name) => onRenameConfirm(id, name, 'folder')}
+                onCancel={onRenameCancel}
+              />
+            </div>
+          ) : (
+            <span style={{
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {node.name}
+            </span>
+          )}
         </div>
 
-        {/* Children */}
-        {node.isOpen && node.children?.map((child) => (
+        {/* Children — only rendered when open */}
+        {isOpen && node.children?.map((child) => (
           <TreeNode
             key={child._id}
             node={child}
             depth={depth + 1}
             selectedFileId={selectedFileId}
+            renamingNode={renamingNode}
+            isFolderOpen={isFolderOpen}
             onFileClick={onFileClick}
             onToggleFolder={onToggleFolder}
             onContextMenu={onContextMenu}
+            onRenameConfirm={onRenameConfirm}
+            onRenameCancel={onRenameCancel}
+            RenameInput={RenameInput}
           />
         ))}
       </div>
     )
   }
 
-  // File row
+  // ── File ────────────────────────────────────────────────────────────────
   return (
     <div
       onClick={() => onFileClick(node)}
@@ -105,9 +143,26 @@ export function TreeNode({ node, depth = 0, selectedFileId, onFileClick, onToggl
       }}
     >
       <FileColorDot filename={node.name} />
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {node.name}
-      </span>
+
+      {/* Name or rename input */}
+      {isRenaming ? (
+        <div
+          style={{ flex: 1, minWidth: 0 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <RenameInput
+            node={node}
+            onConfirm={(id, name) => onRenameConfirm(id, name, 'file')}
+            onCancel={onRenameCancel}
+          />
+        </div>
+      ) : (
+        <span style={{
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {node.name}
+        </span>
+      )}
     </div>
   )
 }

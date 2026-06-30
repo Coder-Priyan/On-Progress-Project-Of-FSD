@@ -1,61 +1,178 @@
 // features/workspace/hooks/useFileTree.js
-// Stage 5 — static mock data only. Real API wiring in Stage 6.
+// Stage 6 — real API. Replaces the mock data version entirely.
+//
+// Responsibilities:
+//   - Fetch files + folders from backend on mount
+//   - Build nested tree from flat API response
+//   - Create / rename / delete files and folders
+//   - Emit socket events AFTER successful API call (Stage 7 adds this)
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { getFiles, createFile, updateFileContent, renameFile, deleteFile } from '@/services/file.service'
+import { getFolders, createFolder, renameFolder, deleteFolder } from '@/services/folder.service'
+import { buildFileTree } from '@/utils/fileHelpers'
 
-const MOCK_TREE = [
-  {
-    _id: 'folder-1', type: 'folder', name: 'src', isOpen: true,
-    children: [
-      { _id: 'file-1', type: 'file', name: 'App.jsx',   folderId: 'folder-1' },
-      { _id: 'file-2', type: 'file', name: 'main.jsx',  folderId: 'folder-1' },
-      { _id: 'file-3', type: 'file', name: 'index.css', folderId: 'folder-1' },
-    ],
-  },
-  {
-    _id: 'folder-2', type: 'folder', name: 'public', isOpen: false,
-    children: [
-      { _id: 'file-4', type: 'file', name: 'index.html', folderId: 'folder-2' },
-    ],
-  },
-  { _id: 'file-5', type: 'file', name: 'package.json', folderId: null },
-  { _id: 'file-6', type: 'file', name: '.gitignore',   folderId: null },
-]
-
-export function useFileTree() {
-  const [tree,           setTree]           = useState(MOCK_TREE)
+export function useFileTree(repoId) {
+  const [tree,           setTree]           = useState([])
+  const [isLoading,      setIsLoading]      = useState(true)
+  const [error,          setError]          = useState('')
   const [selectedFileId, setSelectedFileId] = useState(null)
-  const [contextMenu,    setContextMenu]    = useState(null) // { x, y, node }
+  const [contextMenu,    setContextMenu]    = useState(null)
 
-  // Toggle folder open/closed
-  const toggleFolder = (folderId) => {
-    const toggle = (nodes) => nodes.map((n) =>
-      n._id === folderId
-        ? { ...n, isOpen: !n.isOpen }
-        : n.children
-          ? { ...n, children: toggle(n.children) }
-          : n
-    )
-    setTree(toggle)
-  }
+  // ── Inline rename state ────────────────────────────────────────────────────
+  // When user triggers rename, we store the node being renamed here.
+  // FileContextMenu sets this, TreeNode renders the input.
+  const [renamingNode, setRenamingNode] = useState(null)
 
-  const selectFile = (fileId) => setSelectedFileId(fileId)
+  // ── Folder open/close state ────────────────────────────────────────────────
+  const [openFolders, setOpenFolders] = useState({})
 
-  const openContextMenu = (e, node) => {
+  // ── Fetch files and folders ────────────────────────────────────────────────
+  const loadTree = useCallback(async () => {
+    if (!repoId) return
+    setIsLoading(true)
+    setError('')
+    try {
+      const [foldersData, filesData] = await Promise.all([
+        getFolders(repoId),
+        getFiles(repoId),
+      ])
+
+      const folders = Array.isArray(foldersData) ? foldersData : (foldersData.folders ?? [])
+      const files   = Array.isArray(filesData)   ? filesData   : (filesData.files   ?? [])
+
+      const built = buildFileTree(folders, files)
+      setTree(built)
+
+      // Auto-open root-level folders
+      const rootFolderIds = {}
+      folders
+        .filter((f) => !f.parentFolderId)
+        .forEach((f) => { rootFolderIds[f._id] = true })
+      setOpenFolders(rootFolderIds)
+
+    } catch (err) {
+      setError('Failed to load files.')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [repoId])
+
+  useEffect(() => { loadTree() }, [loadTree])
+
+  // ── Toggle folder open/close ───────────────────────────────────────────────
+  const toggleFolder = useCallback((folderId) => {
+    setOpenFolders((prev) => ({ ...prev, [folderId]: !prev[folderId] }))
+  }, [])
+
+  const isFolderOpen = useCallback((folderId) => {
+    return !!openFolders[folderId]
+  }, [openFolders])
+
+  // ── Select file ───────────────────────────────────────────────────────────
+  const selectFile = useCallback((fileId) => {
+    setSelectedFileId(fileId)
+  }, [])
+
+  // ── Context menu ──────────────────────────────────────────────────────────
+  const openContextMenu = useCallback((e, node) => {
     e.preventDefault()
     e.stopPropagation()
     setContextMenu({ x: e.clientX, y: e.clientY, node })
-  }
+  }, [])
 
-  const closeContextMenu = () => setContextMenu(null)
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null)
+  }, [])
+
+  // ── Create file ───────────────────────────────────────────────────────────
+  const handleCreateFile = useCallback(async (name, folderId = null) => {
+    if (!name?.trim()) return
+    try {
+      await createFile(repoId, { name: name.trim(), folderId, content: '' })
+      await loadTree()
+    } catch (err) {
+      console.error('[DevSync] createFile failed:', err)
+    }
+  }, [repoId, loadTree])
+
+  // ── Create folder ─────────────────────────────────────────────────────────
+  const handleCreateFolder = useCallback(async (name, parentFolderId = null) => {
+    if (!name?.trim()) return
+    try {
+      await createFolder(repoId, { name: name.trim(), parentFolderId })
+      await loadTree()
+    } catch (err) {
+      console.error('[DevSync] createFolder failed:', err)
+    }
+  }, [repoId, loadTree])
+
+  // ── Rename file ───────────────────────────────────────────────────────────
+  const handleRenameFile = useCallback(async (fileId, newName) => {
+    if (!newName?.trim()) return
+    try {
+      await renameFile(repoId, fileId, newName.trim())
+      await loadTree()
+    } catch (err) {
+      console.error('[DevSync] renameFile failed:', err)
+    } finally {
+      setRenamingNode(null)
+    }
+  }, [repoId, loadTree])
+
+  // ── Rename folder ─────────────────────────────────────────────────────────
+  const handleRenameFolder = useCallback(async (folderId, newName) => {
+    if (!newName?.trim()) return
+    try {
+      await renameFolder(repoId, folderId, newName.trim())
+      await loadTree()
+    } catch (err) {
+      console.error('[DevSync] renameFolder failed:', err)
+    } finally {
+      setRenamingNode(null)
+    }
+  }, [repoId, loadTree])
+
+  // ── Delete file ───────────────────────────────────────────────────────────
+  const handleDeleteFile = useCallback(async (fileId) => {
+    try {
+      await deleteFile(repoId, fileId)
+      if (selectedFileId === fileId) setSelectedFileId(null)
+      await loadTree()
+    } catch (err) {
+      console.error('[DevSync] deleteFile failed:', err)
+    }
+  }, [repoId, loadTree, selectedFileId])
+
+  // ── Delete folder ─────────────────────────────────────────────────────────
+  const handleDeleteFolder = useCallback(async (folderId) => {
+    try {
+      await deleteFolder(repoId, folderId)
+      await loadTree()
+    } catch (err) {
+      console.error('[DevSync] deleteFolder failed:', err)
+    }
+  }, [repoId, loadTree])
 
   return {
     tree,
+    isLoading,
+    error,
     selectedFileId,
     contextMenu,
-    toggleFolder,
+    renamingNode,
+    isFolderOpen,
     selectFile,
+    toggleFolder,
     openContextMenu,
     closeContextMenu,
+    setRenamingNode,
+    handleCreateFile,
+    handleCreateFolder,
+    handleRenameFile,
+    handleRenameFolder,
+    handleDeleteFile,
+    handleDeleteFolder,
+    reloadTree: loadTree,
   }
 }

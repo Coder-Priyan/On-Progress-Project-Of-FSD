@@ -1,19 +1,21 @@
-/**
- * services/folder.service.js — Folder management API calls.
- * Called by @/features/workspace/hooks/useFileTree.js (Stage 6)
- */
+// services/folder.service.js
+// Patched URLs to match actual backend routes:
+//   GET    /api/folders/:repositoryId
+//   POST   /api/folders/:repositoryId
+//   PUT    /api/folders/:folderId
+//   DELETE /api/folders/:folderId
 
 import apiClient from '@/lib/axios'
 
 /** Get all folders for a repository */
 export const getFolders = async (repoId) => {
-  const response = await apiClient.get(`/repositories/${repoId}/folders`)
+  const response = await apiClient.get(`/folders/${repoId}`)
   return response.data
 }
 
 /** Create a new folder */
 export const createFolder = async (repoId, { name, parentFolderId }) => {
-  const response = await apiClient.post(`/repositories/${repoId}/folders`, {
+  const response = await apiClient.post(`/folders/${repoId}`, {
     name,
     parentFolderId,
   })
@@ -22,14 +24,16 @@ export const createFolder = async (repoId, { name, parentFolderId }) => {
 
 /** Rename a folder */
 export const renameFolder = async (repoId, folderId, name) => {
-  const response = await apiClient.put(`/repositories/${repoId}/folders/${folderId}`, {
-    name,
-  })
+  // repoId not needed by this route but kept in signature
+  // so useFileTree.js doesn't need to change
+  const response = await apiClient.put(`/folders/${folderId}`, { name })
   return response.data
 }
 
-/** Delete a folder — backend should cascade-delete all nested files/folders */
+/** Delete a folder */
 export const deleteFolder = async (repoId, folderId) => {
-  const response = await apiClient.delete(`/repositories/${repoId}/folders/${folderId}`)
+  // repoId not needed by this route but kept in signature
+  // so useFileTree.js doesn't need to change
+  const response = await apiClient.delete(`/folders/${folderId}`)
   return response.data
 }

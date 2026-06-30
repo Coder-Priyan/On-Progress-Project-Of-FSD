@@ -1,33 +1,86 @@
 // features/workspace/hooks/useEditor.js
-// Manages file content in the editor. Stage 5 = mock content only.
+// Stage 6 — real API. Fetches file content on open, auto-saves on change.
+//
+// Auto-save flow:
+//   User types → setContent() → debounce 800ms → updateFileContent() API call
+//   syncStatus: 'saved' → 'saving' → 'saved' | 'error'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
+import { getFileById, updateFileContent } from '@/services/file.service'
 
-const MOCK_CONTENT = {
-  'file-1': `import React from 'react'\nimport './index.css'\n\nfunction App() {\n  return (\n    <div className="App">\n      <h1>Hello DevSync</h1>\n    </div>\n  )\n}\n\nexport default App`,
-  'file-2': `import { StrictMode } from 'react'\nimport { createRoot } from 'react-dom/client'\nimport App from './App.jsx'\n\ncreateRoot(document.getElementById('root')).render(\n  <StrictMode>\n    <App />\n  </StrictMode>\n)`,
-  'file-3': `* {\n  box-sizing: border-box;\n  margin: 0;\n  padding: 0;\n}\n\nbody {\n  font-family: Inter, sans-serif;\n  background: #0D1117;\n  color: #E6EDF3;\n}`,
-  'file-4': `<!DOCTYPE html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <title>DevSync</title>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.jsx"></script>\n  </body>\n</html>`,
-  'file-5': `{\n  "name": "my-project",\n  "version": "1.0.0",\n  "dependencies": {}\n}`,
-  'file-6': `node_modules\n.env\ndist\n.DS_Store`,
-}
+const DEBOUNCE_MS = 800
 
-export function useEditor() {
-  // content map: fileId → string
-  const [contentMap, setContentMap] = useState(MOCK_CONTENT)
-  const [syncStatus, setSyncStatus] = useState('saved') // 'saved' | 'saving' | 'error'
+export function useEditor(repoId) {
+  // contentMap: fileId → string (in-memory content for each open file)
+  const [contentMap, setContentMap] = useState({})
 
+  // loadingFiles: Set of fileIds currently being fetched
+  const [loadingFiles, setLoadingFiles] = useState(new Set())
+
+  // syncStatus shown in navbar and status bar
+  const [syncStatus, setSyncStatus] = useState('saved')
+
+  // Debounce timers: fileId → timer ref
+  const timers = useRef({})
+
+  // ── Load file content from API when a file is first opened ────────────────
+  const loadFile = useCallback(async (file) => {
+    // Already loaded — don't refetch
+    if (contentMap[file._id] !== undefined) return
+
+    setLoadingFiles((prev) => new Set(prev).add(file._id))
+    try {
+      const data = await getFileById(repoId, file._id)
+      const content = data.file?.content ?? data.content ?? ''
+      setContentMap((prev) => ({ ...prev, [file._id]: content }))
+    } catch (err) {
+      console.error('[DevSync] loadFile failed:', err)
+      setContentMap((prev) => ({ ...prev, [file._id]: '' }))
+    } finally {
+      setLoadingFiles((prev) => {
+        const next = new Set(prev)
+        next.delete(file._id)
+        return next
+      })
+    }
+  }, [repoId, contentMap])
+
+  // ── Get content for a file ────────────────────────────────────────────────
   const getContent = useCallback((fileId) => {
     return contentMap[fileId] ?? ''
   }, [contentMap])
 
+  const isFileLoading = useCallback((fileId) => {
+    return loadingFiles.has(fileId)
+  }, [loadingFiles])
+
+  // ── Set content + trigger debounced save ──────────────────────────────────
   const setContent = useCallback((fileId, value) => {
+    // Update in-memory immediately so editor feels instant
     setContentMap((prev) => ({ ...prev, [fileId]: value }))
     setSyncStatus('saving')
-    // Stage 6: debounced API call goes here
-    // For now just flip back to saved after a moment
-    setTimeout(() => setSyncStatus('saved'), 800)
-  }, [])
 
-  return { getContent, setContent, syncStatus }
+    // Clear previous debounce timer for this file
+    if (timers.current[fileId]) clearTimeout(timers.current[fileId])
+
+    // Start new debounce timer
+    timers.current[fileId] = setTimeout(async () => {
+      try {
+        await updateFileContent(repoId, fileId, value)
+        setSyncStatus('saved')
+        // Stage 7: emit CODE_CHANGE socket event here
+      } catch (err) {
+        console.error('[DevSync] auto-save failed:', err)
+        setSyncStatus('error')
+      }
+    }, DEBOUNCE_MS)
+  }, [repoId])
+
+  return {
+    getContent,
+    setContent,
+    loadFile,
+    isFileLoading,
+    syncStatus,
+  }
 }

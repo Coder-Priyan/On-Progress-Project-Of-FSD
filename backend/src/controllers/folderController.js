@@ -9,7 +9,7 @@ const Repository = require('../models/Repository');
 const createFolder = async (req, res) => {
   try {
     const { repositoryId } = req.params;
-    const { name, parentFolder } = req.body;
+    const { name, parentFolderId } = req.body;
 
     // 4. Validate folder name
     if (!name) {
@@ -44,8 +44,8 @@ const createFolder = async (req, res) => {
     }
 
     // If parentFolder is provided, verify it exists and belongs to the same repository
-    if (parentFolder) {
-      const parent = await Folder.findById(parentFolder);
+    if (parentFolderId) {
+      const parent = await Folder.findById(parentFolderId);
       if (!parent) {
         return res.status(404).json({
           success: false,
@@ -64,7 +64,7 @@ const createFolder = async (req, res) => {
     const folder = await Folder.create({
       name,
       repository: repositoryId,
-      parentFolder: parentFolder || null,
+      parentFolder: parentFolderId || null,
       createdBy: req.user._id,
     });
 
