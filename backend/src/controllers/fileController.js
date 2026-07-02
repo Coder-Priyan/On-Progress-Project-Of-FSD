@@ -1,6 +1,7 @@
 // controllers/fileController.js
 const File = require('../models/File');
 const Repository = require('../models/Repository');
+const { getIO } = require('../sockets');
 
 /**
  * Create a new file in a repository.
@@ -53,6 +54,20 @@ const createFile = async (req, res) => {
     });
 
     // 5. Return success response
+    const io = getIO();
+    const room = `repo:${repositoryId}`;
+
+    console.log("🔥 ROOM:", room);
+    console.log("🔥 ROOM MEMBERS:", io.sockets.adapter.rooms.get(room));
+    console.log("🔥 EMITTING FILE_CREATED", repositoryId);
+
+    io.to(`repo:${repositoryId}`).emit('file:created', {
+      repositoryId,
+      fileId: file._id,
+    });
+
+    console.log("🔥 FILE_CREATED EMITTED");
+
     res.status(201).json({
       success: true,
       message: 'File created successfully',
@@ -219,6 +234,13 @@ const updateFile = async (req, res) => {
     await file.save();
 
     // 7. Return success response
+    const io = getIO();
+
+    io.to(`repo:${repository._id}`).emit('file:renamed', {
+      repositoryId: repository._id,
+      fileId: file._id,
+    });
+
     res.status(200).json({
       success: true,
       message: 'File updated successfully',
@@ -275,6 +297,13 @@ const deleteFile = async (req, res) => {
     await file.deleteOne();
 
     // 6. Return success response
+    const io = getIO();
+
+    io.to(`repo:${repository._id}`).emit('file:deleted', {
+      repositoryId: repository._id,
+      fileId: file._id,
+    });
+
     res.status(200).json({
       success: true,
       message: 'File deleted successfully',

@@ -4,7 +4,13 @@ const { Server }               = require('socket.io')
 const { socketAuthMiddleware } = require('./middleware')
 const { handleConnection }     = require('../handlers/workspace.socket')
 
+let ioInstance = null
+
 const initSocket = (httpServer) => {
+  if (ioInstance) {
+    return ioInstance
+  }
+
   const io = new Server(httpServer, {
     cors: {
       origin:      process.env.CLIENT_URL || '*',
@@ -14,6 +20,8 @@ const initSocket = (httpServer) => {
     pingTimeout:  60000,
     pingInterval: 25000,
   })
+
+  ioInstance = io
 
   io.use(socketAuthMiddleware)
 
@@ -25,4 +33,12 @@ const initSocket = (httpServer) => {
   return io
 }
 
-module.exports = { initSocket }
+const getIO = () => {
+  if (!ioInstance) {
+    throw new Error('Socket.IO has not been initialized')
+  }
+
+  return ioInstance
+}
+
+module.exports = { initSocket, getIO }

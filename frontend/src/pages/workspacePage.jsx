@@ -96,6 +96,7 @@ function WorkspacePage() {
     handleCreateFile, handleCreateFolder,
     handleRenameFile, handleRenameFolder,
     handleDeleteFile, handleDeleteFolder,
+    reloadTree,
   } = useFileTree(repoId)
 
   const { tabs, activeTab, openTab, closeTab, switchTab } = useTabs()
@@ -142,7 +143,7 @@ function WorkspacePage() {
 
   const activeFile = tabs.find((t) => t._id === activeTab) ?? null
 
-  const { isConnected, onlineUsers } = useSocket(repoId)
+  const { isConnected, onlineUsers } = useSocket(repoId, reloadTree)
 
   console.log("🔥 ONLINE USERS:", onlineUsers)
 

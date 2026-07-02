@@ -41,12 +41,17 @@ let socketInstance = null
  * @returns {Socket} — The connected Socket.IO client instance.
  */
 export const connectSocket = (repoId) => {
+  console.log("🚀 connectSocket called")
+
   // If already connected, return the existing instance
   if (socketInstance?.connected) {
+    console.log("♻️ Reusing existing socket")
     return socketInstance
   }
 
   const token = localStorage.getItem('devsync_token')
+
+  console.log("🆕 Creating NEW socket")
 
   socketInstance = io(
     import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000',
@@ -66,6 +71,10 @@ export const connectSocket = (repoId) => {
     }
   )
 
+  socketInstance.onAny((event, ...args) => {
+    console.log("📡 SOCKET EVENT:", event, args)
+  })
+
   return socketInstance
 }
 
@@ -75,6 +84,7 @@ export const connectSocket = (repoId) => {
  */
 export const disconnectSocket = () => {
   if (socketInstance) {
+    console.log("🛑 disconnectSocket called")
     socketInstance.disconnect()
     socketInstance = null
   }

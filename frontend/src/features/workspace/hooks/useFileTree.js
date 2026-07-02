@@ -29,6 +29,8 @@ export function useFileTree(repoId) {
 
   // ── Fetch files and folders ────────────────────────────────────────────────
   const loadTree = useCallback(async () => {
+
+    console.log("🔄 loadTree called")
     if (!repoId) return
     setIsLoading(true)
     setError('')
@@ -38,10 +40,14 @@ export function useFileTree(repoId) {
         getFiles(repoId),
       ])
 
+      console.log("📁 foldersData:", foldersData)
+      console.log("📄 filesData:", filesData)
+
       const folders = Array.isArray(foldersData) ? foldersData : (foldersData.folders ?? [])
       const files   = Array.isArray(filesData)   ? filesData   : (filesData.files   ?? [])
 
       const built = buildFileTree(folders, files)
+      console.log("🌳 BUILT TREE:", built)
       setTree(built)
 
       // Auto-open root-level folders

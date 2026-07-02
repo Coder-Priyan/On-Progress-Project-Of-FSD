@@ -1,6 +1,7 @@
 // controllers/folderController.js
 const Folder = require('../models/Folder');
 const Repository = require('../models/Repository');
+const { getIO } = require('../sockets');
 
 /**
  * Create a new folder in a repository.
@@ -69,6 +70,13 @@ const createFolder = async (req, res) => {
     });
 
     // 6. Return success response
+    const io = getIO();
+
+    io.to(`repo:${repositoryId}`).emit('folder:created', {
+      repositoryId,
+      folderId: folder._id,
+    });
+
     res.status(201).json({
       success: true,
       message: 'Folder created successfully',
@@ -186,6 +194,12 @@ const updateFolder = async (req, res) => {
     await folder.save();
 
     // 8. Return success response
+    const io = getIO();
+
+    io.to(`repo:${repository._id}`).emit('folder:renamed', {
+      repositoryId: repository._id,
+      folderId: folder._id,
+    });
     res.status(200).json({
       success: true,
       message: 'Folder updated successfully',
@@ -242,6 +256,13 @@ const deleteFolder = async (req, res) => {
     await folder.deleteOne();
 
     // 6. Return success response
+    const io = getIO();
+
+    io.to(`repo:${repository._id}`).emit('folder:deleted', {
+      repositoryId: repository._id,
+      folderId: folder._id,
+    });
+
     res.status(200).json({
       success: true,
       message: 'Folder deleted successfully',
