@@ -1,418 +1,120 @@
 # UI/UX Design Brief
 
 ## Project Name
-
 DevSync
 
-## Product Type
+---
 
-Real-Time Collaborative Repository Workspace
+# 1. Design Philosophy
+
+DevSync's visual language borrows deliberately from developer tools its users already live in daily — the aesthetic is dark, IDE-like, and quiet, so the interface disappears and the code/collaboration stays the focus. Nothing about the UI should compete with the Monaco editor for attention.
+
+Core principles:
+* **Dark-first**: there is no light theme in scope — the entire app is designed against a single dark palette.
+* **Developer-familiar**: layout patterns (sidebar file tree, tabbed editor, status bar) mirror VS Code so the tool feels immediately usable with zero onboarding.
+* **Quiet chrome, loud content**: navigation and surfaces use muted, low-contrast tones; accent color is reserved for actionable/interactive elements only.
 
 ---
 
-# 1. Design Overview
+# 2. Design Tokens
 
-DevSync is designed as a repository-centric collaboration platform inspired by the simplicity and familiarity of GitHub while incorporating a real-time collaborative workspace experience.
+Defined once via Tailwind v4's `@theme` block and reused everywhere — no raw hex codes elsewhere in the codebase.
 
-The interface should feel professional, developer-focused, and productivity-oriented.
+| Token | Value | Usage |
+|---|---|---|
+| `ds-base` | `#0D1117` | App background (matches GitHub dark base) |
+| `ds-surface` | `#161B22` | Panels, cards, sidebar background |
+| `ds-elevated` | `#21262D` | Modals, dropdowns, hovered rows |
+| `ds-border` | `#30363D` | All hairline borders/dividers |
+| `ds-text` | `#E6EDF3` | Primary text |
+| `ds-text-muted` | `#8B949E` | Secondary text, labels |
+| `ds-text-faint` | `#484F58` | Placeholder/disabled text |
+| `ds-accent` | `#7C5CFC` | Primary actions, links, active states |
+| `ds-accent-hover` | `#6B4EE6` | Hover state for accent elements |
+| `ds-danger` | `#F85149` | Destructive actions, error states |
+| `ds-success` | `#3FB950` | Saved/online/success indicators |
+| `ds-warning` | `#D29922` | Warnings, expiring invitations |
+| `ds-info` | `#58A6FF` | Informational badges |
 
-The primary objective of the design is to keep users focused on repository management and collaboration while minimizing distractions.
-
-The platform should prioritize clarity, consistency, and efficient navigation.
-
----
-
-# 2. Design Goals
-
-The user interface should:
-
-* Feel familiar to developers.
-* Reduce the learning curve for first-time users.
-* Provide quick access to repositories and workspaces.
-* Prioritize coding and collaboration workflows.
-* Maintain a clean and organized layout.
-* Support long working sessions without visual fatigue.
-
----
-
-# 3. Design Inspiration
-
-The overall design language is inspired by GitHub.
-
-Key inspirations include:
-
-* Dark theme aesthetics
-* Repository-first navigation
-* Clean information hierarchy
-* Minimal visual clutter
-* Sidebar-driven navigation
-
-The workspace experience will combine elements of GitHub and VS Code.
-
-GitHub influences repository management.
-
-VS Code influences file navigation and code editing.
+### Typography
+* **UI font**: Inter (weights 300–700)
+* **Code font**: JetBrains Mono (with italics for comments), used in the Monaco editor and anywhere file content or code-like values are shown
+* **Base size**: 13px, line-height 1.5 — deliberately compact to match dense developer-tool UIs rather than a marketing-site's larger type scale
 
 ---
 
-# 4. Visual Style
+# 3. Layout Structure
 
-### Theme
+### App Shell
+`AppShell` is the persistent frame for all authenticated pages, composed of:
+* `Navbar` — top bar: app identity, user menu
+* `Sidebar` — left rail: repository file tree (workspace) or repo list (dashboard context)
+* Main content region — page-specific
+* `StatusBar` — bottom strip: connection state, save status, active file info
 
-Dark Mode by default.
+### Dashboard Layout
+* `DashboardHeader` — page title + "new repository" entry point
+* `RepoList` → grid/list of `RepoCard`s, each showing name, description, visibility badge, and last-updated
+* Empty state (`EmptyState`) when the user has no repositories yet, with a clear call-to-action to create one
 
-### Design Language
+### Workspace Layout
+Three-pane IDE-style layout:
+1. **Left — File Explorer**: `FileTree` built from `TreeNode` recursion, with `FileContextMenu` for create/rename/delete actions on right-click
+2. **Center — Editor**: `WorkspaceNavbar` (repo name, `BreadcrumbNav`, `ExportButton`) above `TabBar` (open files) above `EditorPane` (Monaco instance); `EditorPlaceHolder` shown when no file is open
+3. **Right — Collaboration Pane**: `PresenceList` (who's online, via `UserPresenceRow`), `InviteForm`, and `ReceivedInvitations`
 
-Professional
-
-Minimal
-
-Developer-Oriented
-
-Functional
-
-### Interface Philosophy
-
-Content over decoration.
-
-The interface should avoid excessive animations, unnecessary illustrations, or distracting visual effects.
-
-The code editor and repository content should remain the primary focus.
+`StatusBar` at the very bottom reflects live socket connection state and the editor's save status (`saving` / `saved` / `error`), giving the user constant, low-effort confidence that their work is persisted.
 
 ---
 
-# 5. Color System
+# 4. Component Inventory
 
-Primary Background
+### UI primitives (`components/ui`)
+* `Button` — single component handling all button variants (primary/accent, secondary, danger, ghost) rather than one-off styled buttons per feature
+* `Input` — shared text input with consistent focus/error states
+* `Modal` — shared modal shell used by `CreateRepoModal` and any future dialogs
 
-#0D1117
+### Shared components (`components/shared`)
+* `AvatarBadge` — user avatar with initials fallback, used in presence lists and collaborator rows
+* `EmptyState` — reusable empty/zero-data illustration + message + CTA
+* `FileIcon` — maps file extension to an appropriate icon
 
-Secondary Background
-
-#161B22
-
-Border Color
-
-#30363D
-
-Primary Text
-
-#E6EDF3
-
-Secondary Text
-
-#8B949E
-
-Accent Color
-
-#238636
-
-Status Colors
-
-Online: Green
-
-Offline: Gray
-
-Notifications: Blue
-
-Errors: Red
+### Feature components
+* Auth: `LoginForm`, `RegisterForm`
+* Dashboard: `CreateRepoModal`, `DashboardHeader`, `RepoCard`, `RepoList`
+* Workspace / Editor: `EditorPane`, `EditorPlaceHolder`, `TabBar`
+* Workspace / File Explorer: `FileTree`, `TreeNode`, `FileContextMenu`
+* Workspace / Toolbar: `BreadcrumbNav`, `ExportButton`, `WorkspaceNavbar`
+* Workspace / Collaboration: `InviteForm`, `PresenceList`, `ReceivedInvitations`, `UserPresenceRow`
 
 ---
 
-# 6. Typography
+# 5. Key Interaction Patterns
 
-Primary Font
+### Presence & Live Status
+Online collaborators render as avatar badges with a live-updating count; the status bar reflects real-time socket connection health so a dropped connection is visible immediately rather than silently failing.
 
-Inter
+### Save Status Feedback
+The editor status indicator cycles through three states tied directly to the auto-save debounce: `saving` (user is actively typing, change is queued), `saved` (debounced REST write succeeded), `error` (write failed — surfaced rather than swallowed).
 
-Fallback Fonts
+### Invitations as a First-Class Surface
+Pending invitations are not buried in settings — `ReceivedInvitations` is a visible panel so a user is never left wondering why they can't see a repo they were told about.
 
-System UI Fonts
-
-Typography Principles
-
-* Consistent sizing
-* High readability
-* Strong visual hierarchy
-* Minimal font variations
+### Context Menus Over Modals for File Ops
+Create/rename/delete for files and folders use inline context menus (`FileContextMenu`) rather than modal dialogs, keeping frequent, low-stakes actions fast — modals are reserved for higher-stakes or multi-field actions (creating a repository, inviting a collaborator).
 
 ---
 
-# 7. Navigation Structure
+# 6. Accessibility & Responsiveness Notes
 
-The application uses a sidebar-based navigation system.
-
-Primary Navigation Areas:
-
-* Dashboard
-* Repositories
-* Workspace
-* Profile
-* Settings
-
-Navigation should remain visible and accessible throughout the application.
+* Sufficient contrast is maintained between `ds-text` / `ds-text-muted` and their respective backgrounds (`ds-base`/`ds-surface`) to remain readable at the compact 13px base size.
+* The three-pane workspace layout is the primary target; collapsing the collaboration pane and/or file explorer on narrower viewports is a known follow-up rather than a solved requirement in the current build.
+* Loading states (`AppLoadingScreen`, route-level `PageLoader`) are intentionally minimal and fast — sessions restore from a stored token in well under a second in normal conditions, so loaders are a safety net, not a feature.
 
 ---
 
-# 8. Authentication Screens
-
-## Login Screen
-
-Purpose:
-
-Allow existing users to access the platform.
-
-Layout:
-
-Left Section:
-
-* Product branding
-* Product description
-
-Right Section:
-
-* Login form
-* Email field
-* Password field
-* Sign In button
-
----
-
-## Registration Screen
-
-Purpose:
-
-Create new user accounts.
-
-Layout:
-
-Left Section:
-
-* Branding
-* Product information
-
-Right Section:
-
-* Registration form
-* Name
-* Email
-* Password
-* Create Account button
-
----
-
-# 9. Dashboard Experience
-
-The dashboard serves as the primary entry point after authentication.
-
-Layout Structure:
-
-Left Sidebar
-
-Main Content Area
-
-Top Navigation
-
----
-
-## Sidebar
-
-Displays:
-
-* Repository List
-* Create Repository Button
-* Quick Navigation
-
-The sidebar remains fixed for easy repository access.
-
----
-
-## Main Content Area
-
-Displays:
-
-* Welcome Section
-* Recent Repositories
-* Shared Repositories
-* Repository Activity
-
-The dashboard should provide immediate visibility into ongoing work.
-
----
-
-# 10. Repository Creation Experience
-
-Repository creation should be simple and lightweight.
-
-Required Inputs:
-
-* Repository Name
-* Description (Optional)
-* Visibility Setting
-
-Actions:
-
-* Create Repository
-* Cancel
-
-The workflow should require minimal user effort.
-
----
-
-# 11. Repository Workspace
-
-The repository workspace is the core experience of the platform.
-
-This screen receives the highest design priority.
-
----
-
-## Workspace Layout
-
-Three-column layout.
-
-Left Panel
-
-Center Panel
-
-Right Panel
-
----
-
-## Left Panel
-
-Purpose:
-
-Repository Navigation
-
-Contains:
-
-* Files
-* Folders
-* Repository Structure
-
-Users should be able to manage files without leaving the workspace.
-
----
-
-## Center Panel
-
-Purpose:
-
-Code Editing
-
-Contains:
-
-* Code Editor
-* Active File
-* Editor Tabs
-
-This section should occupy most of the screen space.
-
-The editor must remain the visual focus of the workspace.
-
----
-
-## Right Panel
-
-Purpose:
-
-Collaboration Information
-
-Contains:
-
-* Active Members
-* Online Status
-* Repository Activity
-
-This panel provides awareness of team activity.
-
----
-
-# 12. Real-Time Collaboration Experience
-
-Collaboration should feel immediate and transparent.
-
-Users should be able to observe repository changes without refreshing the page.
-
-Updates should appear naturally within the interface.
-
-Examples:
-
-* New file creation
-* File deletion
-* Folder updates
-* Code modifications
-
-Visual feedback should remain subtle and non-disruptive.
-
----
-
-# 13. Repository Export Experience
-
-The export process should be straightforward.
-
-Flow:
-
-Repository
-
-↓
-
-Export Button
-
-↓
-
-ZIP Generation
-
-↓
-
-Download
-
-The user should be able to export a repository within a few interactions.
-
----
-
-# 14. Responsive Design Requirements
-
-The platform should support:
-
-* Desktop Screens
-* Laptop Screens
-* Tablet Screens
-
-Desktop remains the primary target platform.
-
-Mobile support is considered secondary for the initial release.
-
----
-
-# 15. Accessibility Requirements
-
-The interface should:
-
-* Maintain sufficient color contrast.
-* Support keyboard navigation.
-* Use readable typography.
-* Provide clear focus states.
-
-Accessibility should be considered during all design decisions.
-
----
-
-# 16. User Experience Principles
-
-Every screen should answer three questions immediately:
-
-Where am I?
-
-What can I do here?
-
-What is happening right now?
-
-The platform should always communicate repository state, collaborator activity, and available actions clearly.
-
----
-
-# Design Summary
-
-DevSync adopts a GitHub-inspired design system focused on repository management and developer productivity. The interface combines GitHub's organizational structure with a workspace-oriented collaboration experience, creating an environment where developers can manage repositories and collaborate in real time without unnecessary complexity.
+# 7. Design Non-Goals
+
+* No light theme.
+* No custom per-user theming/branding.
+* No animation-heavy transitions — motion is limited to small, functional cues (pulsing loading dots, hover states), consistent with the "quiet chrome" principle.
