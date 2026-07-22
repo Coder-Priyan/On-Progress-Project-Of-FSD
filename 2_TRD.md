@@ -1,365 +1,162 @@
 # Technical Requirements Document (TRD)
 
 ## Project Name
-
 DevSync
 
-## Project Type
+---
 
-Real-Time Collaborative Repository Workspace
+# 1. Purpose
+
+This document defines the technical architecture, stack, and engineering conventions for DevSync. It is written as the technical contract the implementation follows — every decision here is one the codebase actually reflects, so that anyone (including future-us) can pick up the project and know exactly how it is wired together.
 
 ---
 
-# 1. Introduction
-
-DevSync is a full-stack web application designed to provide a shared repository workspace where multiple developers can collaborate on the same project in real time.
-
-The platform focuses on solving project synchronization challenges commonly faced by students and development teams. Instead of exchanging project files manually or relying on continuous synchronization workflows, all collaborators work within a single shared repository environment.
-
-This document defines the technical architecture, technology stack, system modules, and implementation requirements necessary for building the platform.
-
----
-
-# 2. System Architecture
-
-DevSync follows a client-server architecture.
-
-The frontend is responsible for rendering the user interface and handling user interactions.
-
-The backend manages authentication, repository operations, file management, data persistence, and real-time communication.
-
-MongoDB is used for storing application data, while Socket.IO is used to establish persistent connections between connected collaborators.
-
-High-level architecture:
-
-Frontend (React)
-
-↓
-
-Backend API (Node.js + Express)
-
-↓
-
-Socket.IO Layer
-
-↓
-
-MongoDB Database
-
----
-
-# 3. Technology Stack
+# 2. Technology Stack
 
 ### Frontend
-
-The frontend will be developed using React.js.
-
-React is selected because it provides component-based architecture, efficient state management, and a large ecosystem suitable for building interactive applications.
-
-Additional frontend technologies:
-
-* React Router DOM
-* Axios
-* Tailwind CSS
-* Socket.IO Client
-
----
+* **React 19** with **Vite** as the build tool
+* **React Router v6/v7** for client-side routing, using lazy-loaded route components
+* **Tailwind CSS v4**, configured via the `@tailwindcss/vite` plugin and `@theme` blocks (Tailwind v4 no longer uses a `tailwind.config.js`-driven theme in the same way v3 did — custom design tokens are declared inside CSS with `@theme`)
+* **Socket.IO Client** for the real-time layer
+* **Monaco Editor** (`@monaco-editor/react`) as the in-browser code editor
+* **Axios** for REST calls
+* **lucide-react** for icons
 
 ### Backend
+* **Node.js** with **Express 5**
+* **Socket.IO** (server) for real-time communication, sharing the same HTTP server instance as Express
+* **MongoDB** with **Mongoose** as the ODM
+* **JWT** (`jsonwebtoken`) for stateless authentication
+* **bcryptjs** for password hashing
+* **CommonJS** module syntax throughout the backend (no ESM) — this is a deliberate, consistent choice, not a mix
 
-The backend will be developed using Node.js and Express.js.
-
-Express provides a lightweight and scalable framework for handling REST APIs and application services.
-
-Backend responsibilities include:
-
-* User authentication
-* Repository management
-* File operations
-* Collaborator management
-* Export services
-* Real-time event processing
+### Tooling
+* **nodemon** for backend dev reload
+* **ESLint** on the frontend
+* **dotenv** for environment configuration
 
 ---
 
-### Database
+# 3. System Architecture
 
-MongoDB will be used as the primary database.
+```
+┌─────────────────┐        REST (Axios, JWT bearer)        ┌──────────────────┐
+│  React Frontend │ ──────────────────────────────────────▶│  Express API     │
+│  (Vite, Tailwind)│◀────────────────────────────────────── │  (Node.js)       │
+└─────────────────┘                                         └──────────────────┘
+        │                                                            │
+        │        Socket.IO (JWT handshake auth)                      │
+        └───────────────────────────────────────────────────────────▶│
+                                                                       ▼
+                                                              ┌──────────────────┐
+                                                              │  Socket.IO Server │
+                                                              │  (shares httpServer)│
+                                                              └──────────────────┘
+                                                                       │
+                                                                       ▼
+                                                              ┌──────────────────┐
+                                                              │  MongoDB (Mongoose)│
+                                                              └──────────────────┘
+```
 
-MongoDB is suitable because repository structures, folders, files, and collaboration metadata can be represented efficiently using document-based storage.
+The Express app and the Socket.IO server are attached to the **same** `http.Server` instance in `server.js`. There is one process, one port, two protocols.
 
-Mongoose will be used for schema management and database interaction.
+### Core architectural rule: REST owns persistence, sockets only broadcast
 
----
+This is the single most important rule in the system:
 
-### Real-Time Communication
+* Every create/update/delete for repositories, files, folders, and invitations happens through a REST endpoint, which is the only thing that writes to MongoDB.
+* After a successful REST write, the controller emits a Socket.IO event to the relevant repository room (`repo:<repositoryId>`) so everyone else's UI updates.
+* Sockets are **never** the source of truth for anything except two things that are intentionally ephemeral and never persisted: (1) live editor keystrokes broadcast between collaborators before the debounce auto-save lands, and (2) in-memory presence (who is online).
 
-Socket.IO will be used to enable bidirectional communication between the server and connected clients.
-
-The Socket.IO layer is responsible for:
-
-* Real-time code synchronization
-* File system synchronization
-* User presence tracking
-* Workspace event broadcasting
-
----
-
-### Authentication
-
-Authentication will be implemented using JWT.
-
-Passwords will be securely hashed using bcrypt before storage.
-
-Protected routes will require valid authentication tokens before access is granted.
-
----
-
-# 4. Core System Modules
-
-## Authentication Module
-
-The authentication module manages user registration, login, session validation, and access control.
-
-Responsibilities:
-
-* Create user accounts
-* Authenticate users
-* Generate JWT tokens
-* Validate authenticated requests
+This means: if a socket message is lost, the data is not lost — the REST call already persisted it. Sockets are a UX layer on top of a REST backbone, not a replacement for it.
 
 ---
 
-## Repository Module
+# 4. Authentication
 
-The repository module manages repository lifecycle operations.
-
-Responsibilities:
-
-* Create repositories
-* Delete repositories
-* Retrieve repository information
-* Manage repository ownership
-
-Each repository acts as an isolated collaborative workspace.
+* Registration and login are REST endpoints (`/api/auth/register`, `/api/auth/login`). Passwords are hashed with bcrypt before storage; plaintext passwords are never persisted or logged.
+* On successful login, the server issues a signed JWT containing the user's id. The frontend stores this token and attaches it as a Bearer token on every REST call.
+* REST routes that require a logged-in user go through an Express `protect` middleware that verifies the JWT and attaches `req.user`.
+* The **same JWT** is reused to authenticate the Socket.IO connection: the token is passed in `socket.handshake.auth.token`, verified by a Socket.IO middleware (`socketAuthMiddleware`) before the connection is accepted, and the resulting user is attached as `socket.user`. There is one identity system, not two.
+* If the token is missing, invalid, or expired, the socket connection is rejected before any event handlers run.
 
 ---
 
-## Collaborator Module
+# 5. Real-Time Layer (Socket.IO)
 
-The collaborator module manages repository access.
+### Room model
+Each repository maps to exactly one Socket.IO room: `repo:<repositoryId>`. A socket joins this room via a `workspace:join` event after connecting, and the server tracks which repository each socket currently belongs to on `socket.data.currentRepository`. Switching repositories automatically leaves the previous room.
 
-Responsibilities:
+### Event naming
+All event name strings live in a single constants file (`sockets/events.js` on the backend, mirrored in `constants/events.js` / `socket/events.js` on the frontend). No event name is ever hand-typed as a string literal elsewhere — this is a strict convention to prevent typo-based bugs between client and server.
 
-* Add collaborators
-* Remove collaborators
-* Verify repository permissions
-* Retrieve repository members
+### Socket responsibility split
+Real-time behaviour is split into narrowly scoped handler modules, each owning one concern:
 
-Only authorized users should be allowed to access repository resources.
+* **`workspace.socket.js`** — owns room join/leave lifecycle and disconnect handling. This is the only file that calls `socket.join()` / `socket.leave()`.
+* **`presence.socket.js`** — owns the in-memory presence store (a map of repository → online users), and broadcasts `presence:update` whenever someone joins or leaves. It exposes join/leave callbacks that `workspace.socket.js` invokes; it does not touch room membership itself.
+* **`editor.socket.js`** — owns live collaborative text sync. Listens for `editor:join` (user opened a file) and `editor:change` (user typed), and re-broadcasts changes as `editor:update` to every other socket in the room — never back to the sender.
 
----
+File and folder real-time updates (`file:created`, `file:renamed`, `file:deleted`, `folder:created`, `folder:renamed`, `folder:deleted`) are emitted directly from the REST controllers after a successful database write, rather than from a dedicated socket handler — because the action originates from an HTTP request, not a socket event, so persistence and broadcast happen in the same place.
 
-## File Management Module
+### Frontend socket lifecycle
+The socket connection itself is managed exclusively by the `useSocket` hook — nothing else calls `connectSocket()`/`disconnectSocket()`. `useSocket` exposes the live socket instance in React state so that dependent hooks (like `useEditor`) receive it as a parameter once it exists, rather than reaching for a module-level getter that may return `null` before the socket is created. This ordering fix (socket instance as an explicit parameter through the component hierarchy) was necessary because effects that ran before the socket existed would silently register no listeners.
 
-The file management module handles repository structure.
+### Collaborative editing conflict avoidance
+The editor uses an `ignoreRemoteChange` ref (not state, because it must be read synchronously inside Monaco's change callback) to distinguish a locally-typed change from a remotely-applied one:
 
-Responsibilities:
-
-* Create files
-* Delete files
-* Rename files
-* Create folders
-* Delete folders
-* Maintain folder hierarchy
-
-All operations must be persisted in the database.
+1. Local keystroke → `setContent()` → emits `editor:change` immediately (no debounce, for real-time feel) → also schedules a debounced REST auto-save (~800ms) for persistence.
+2. Remote update arrives → `applyRemoteUpdate()` sets the guard flag, calls `editor.setValue()`, restores cursor position, then clears the guard — so Monaco's own change event fired by `setValue()` does not get re-broadcast as if the local user typed it.
 
 ---
 
-## Real-Time Synchronization Module
+# 6. REST API Conventions
 
-This module is the core component of the platform.
-
-Responsibilities:
-
-* Synchronize code changes
-* Synchronize file operations
-* Synchronize folder operations
-* Broadcast repository updates
-
-Whenever a collaborator performs an action, the update is propagated to all connected members of the repository.
+* Base path: `/api/<resource>` (`/api/auth`, `/api/repositories`, `/api/files`, `/api/folders`, `/api/invitations`).
+* All protected routes use the `protect` middleware; there is no separate role-based middleware — authorization (owner vs. collaborator vs. neither) is checked inline inside each controller function against the resource being accessed.
+* Every JSON response follows a consistent envelope: `{ success: boolean, message?: string, ...data }`.
+* Mongoose `ObjectId` cast errors are caught explicitly and translated into a `404` ("not found") rather than leaking a `500`.
+* Authorization pattern used throughout: a request is allowed if the requesting user is either the repository's `owner` or present in its `collaborators` array — this check is duplicated per-controller rather than centralized in middleware, which is a known area for future refactoring but is consistent in behaviour today.
 
 ---
 
-## Export Module
+# 7. Data Layer
 
-The export module allows repositories to be downloaded for local development.
-
-Responsibilities:
-
-* Generate repository structure
-* Package files into ZIP format
-* Deliver downloadable archive
-
-The exported repository should preserve its original folder hierarchy and file contents.
+* MongoDB via Mongoose, with all schemas using `{ timestamps: true }` for automatic `createdAt`/`updatedAt`.
+* Relationships are modeled with `ObjectId` references (`ref: 'User'`, `ref: 'Repository'`, etc.) rather than embedded documents, so files/folders/invitations are separate collections that reference their parent repository.
+* The `Invitation` model carries three indexes intentionally: a compound index on `(invitedUser, status)` for the "my pending invitations" query, a compound index on `(repository, invitedUser)` to detect duplicate pending invites, and a TTL index on `expiresAt` so MongoDB automatically deletes expired invitations without a manual cleanup job.
+* Full schema definitions are covered in `5_BackendSchema.md`.
 
 ---
 
-# 5. Database Design Requirements
+# 8. Frontend Architecture
 
-The database must support:
-
-* User management
-* Repository ownership
-* Collaborator relationships
-* File storage
-* Folder hierarchy
-* Repository metadata
-
-Primary collections:
-
-* Users
-* Repositories
-* Files
-* Folders
-
-Each repository must maintain references to its associated files, folders, owner, and collaborators.
+* **Feature-Sliced Design**: code is organized by feature (`features/auth`, `features/dashboard`, `features/workspace`), each with its own `components/`, `hooks/`, and services, rather than by technical layer alone. Cross-cutting concerns (shared UI primitives, layout shell, generic hooks) live outside the feature folders.
+* **Routing**: a single `AppRouter.jsx` is the only file that defines `<Route>` elements. Pages are lazy-loaded with `React.lazy()` so route bundles are code-split.
+* **Auth guarding**: `ProtectedRoute` wraps authenticated routes and redirects to `/login` if there's no valid session; a `PublicOnlyRoute` wrapper does the inverse for `/login` and `/register` so an already-authenticated user is redirected to the dashboard instead of seeing the auth forms again.
+* **State**: React Context (`AuthContext`) holds session/auth state; everything else is local component/hook state — there is no global store (Redux/Zustand) in the current architecture.
 
 ---
 
-# 6. API Design Requirements
+# 9. Environment & Configuration
 
-The backend exposes REST APIs for application functionality.
-
-Major API groups include:
-
-### Authentication APIs
-
-Used for:
-
-* Registration
-* Login
-* Profile retrieval
+* Backend environment variables (`.env`): Mongo connection string, `JWT_SECRET`, `PORT`, `CLIENT_URL` (used for Socket.IO CORS origin).
+* CORS is enabled broadly on the Express app; Socket.IO CORS origin defaults to `CLIENT_URL` or `*` if unset.
 
 ---
 
-### Repository APIs
+# 10. Non-Functional Requirements
 
-Used for:
-
-* Repository creation
-* Repository retrieval
-* Repository deletion
-
----
-
-### Collaborator APIs
-
-Used for:
-
-* Inviting members
-* Managing access
+* **Consistency over cleverness**: REST is always the durable write path; sockets are always a broadcast layer. This rule must hold for any new real-time feature added later.
+* **Predictable room semantics**: a socket belongs to at most one repository room at a time; joining a new one always leaves the previous one first.
+* **Graceful degradation of real-time features**: if the socket disconnects, REST-based CRUD (file/folder create, rename, delete, repository management) must continue to work; only live keystroke sync and presence are affected.
+* **Consistent event vocabulary**: no new socket event is introduced without adding it to the shared events constants file on both frontend and backend.
 
 ---
 
-### File APIs
+# 11. Out of Scope (Technical)
 
-Used for:
-
-* File creation
-* File updates
-* File deletion
-* Folder operations
-
----
-
-### Export APIs
-
-Used for:
-
-* Repository export
-* ZIP generation
-
----
-
-# 7. Real-Time Event Requirements
-
-The system must support real-time events through Socket.IO.
-
-Supported events include:
-
-* Repository join
-* Repository leave
-* User presence updates
-* File creation
-* File deletion
-* File rename
-* Folder creation
-* Folder deletion
-* Code modification
-
-All events must be synchronized across active collaborators with minimal latency.
-
----
-
-# 8. Security Requirements
-
-The platform must implement the following security measures:
-
-* Password hashing using bcrypt
-* JWT-based authentication
-* Protected API routes
-* Repository-level access control
-* Input validation and sanitization
-
-Only repository members should be able to access repository resources.
-
----
-
-# 9. Performance Requirements
-
-The platform should provide a responsive collaboration experience.
-
-Target metrics:
-
-* Repository loading under 3 seconds
-* Real-time update latency under 500 milliseconds
-* Stable synchronization across multiple connected users
-
-The system should support multiple active repositories simultaneously without significant performance degradation.
-
----
-
-# 10. Deployment Requirements
-
-Frontend deployment:
-
-* Vercel
-
-Backend deployment:
-
-* Render
-
-Database hosting:
-
-* MongoDB Atlas
-
-Environment variables will be used for configuration management and credential storage.
-
----
-
-# 11. Future Enhancements
-
-The architecture should remain extensible to support future features without major restructuring.
-
-Potential future enhancements include:
-
-* Activity Logs
-* Version History
-* Repository Snapshots
-* Built-In Code Execution
-* AI-Powered Assistance
-* Advanced Repository Analytics
-
-The initial implementation should be designed with modularity in mind so that future features can be integrated without affecting the core collaboration workflow.
+* Operational Transform / CRDT-based conflict resolution for simultaneous edits to the same character range — the current model is "last write broadcast wins" at the socket layer, which is acceptable for the product's target usage (small teams, not adversarial concurrent editing of the exact same line).
+* Horizontal scaling of the Socket.IO layer (e.g. a Redis adapter for multi-instance deployments) — the current design assumes a single server process, matching in-memory presence storage.
+* Server-side code execution/sandboxing.
