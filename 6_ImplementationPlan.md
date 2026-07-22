@@ -1,334 +1,141 @@
 # Implementation Plan
 
 ## Project Name
-
 DevSync
 
-## Project Type
+---
 
-Real-Time Collaborative Repository Workspace
+# 1. Approach
+
+The plan is organized into sequential stages, each building on a stable version of the one before it. This ordering isn't arbitrary — it reflects the actual dependency chain of the system: authentication has to exist before anything can be "owned"; repositories have to exist before files/folders can belong to something; the file tree has to exist before an editor has anything to open; and the editor has to exist before real-time sync has content worth syncing.
 
 ---
 
-# 1. Purpose
+# 2. Stage 1 — Authentication Foundation
 
-This document defines the development roadmap for DevSync.
+**Goal:** A user can register, log in, and have a persistent session.
 
-The implementation plan is structured around incremental delivery, where each phase introduces a complete and testable set of functionality.
+* `User` model (username, email, password hash, profileImage)
+* `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/profile`
+* JWT issuance on login; `protect` middleware for guarded REST routes
+* Frontend: `AuthContext`, `LoginForm`, `RegisterForm`, `ProtectedRoute` / `PublicOnlyRoute`, token persisted client-side and restored on load
 
-The objective is to establish a stable foundation before implementing advanced collaboration features.
-
-Each phase builds upon the previous phase and should be completed before moving to the next stage.
-
----
-
-# 2. Development Strategy
-
-The project will follow a modular development approach.
-
-Core infrastructure will be implemented first, followed by repository management, workspace functionality, and finally real-time collaboration features.
-
-The development order prioritizes:
-
-* Stability
-* Maintainability
-* Feature Dependencies
-* Scalability
+**Exit criteria:** A user can register, log in, refresh the page, and remain logged in; unauthenticated users are redirected away from protected routes.
 
 ---
 
-# Phase 1 - Project Foundation
+# 3. Stage 2 — Repository Management
 
-## Objective
+**Goal:** A logged-in user can create and manage repositories.
 
-Establish the base application structure and development environment.
+* `Repository` model (name, description, owner, isPublic, collaborators)
+* Full CRUD: `POST/GET/PUT/DELETE /api/repositories`, plus `GET /api/repositories/:id`
+* Ownership-based authorization inline in each controller (owner-only for update/delete)
+* Frontend: `DashboardPage`, `useDashboard`, `RepoList`, `RepoCard`, `CreateRepoModal`
 
-### Tasks
-
-* Setup React frontend
-* Setup Express backend
-* Configure MongoDB Atlas
-* Configure environment variables
-* Create project folder structure
-* Setup routing architecture
-* Configure API communication
-* Setup Git repository
-
-### Deliverables
-
-* Running frontend application
-* Running backend server
-* Successful database connection
-* Development environment ready
+**Exit criteria:** A user can create a repository, see it on their dashboard, update its details, and delete it; only the owner can modify or delete it.
 
 ---
 
-# Phase 2 - Authentication System
+# 4. Stage 3 — File & Folder Management (REST layer)
 
-## Objective
+**Goal:** Repositories can hold a real file/folder structure, fully through REST first.
 
-Implement user authentication and account management.
+* `Folder` model (name, repository, parentFolder, createdBy) and `File` model (name, content, repository, createdBy, folder)
+* Full CRUD for both: `POST/GET/PUT/DELETE /api/folders/...`, `/api/files/...`
+* Authorization extended to "owner or collaborator" across file/folder endpoints
+* Frontend: `FileTree`, `TreeNode`, `FileContextMenu`, `useFileTree`
 
-### Tasks
+**Exit criteria:** A collaborator can build out a folder/file structure inside a repository and see it correctly nested in the sidebar. Real-time propagation of these changes comes in a later stage — at this point the tree updates only for the user performing the action.
 
-* User registration
-* User login
-* Password hashing
-* JWT authentication
-* Protected routes
-* User profile endpoint
-
-### Deliverables
-
-* Account creation
-* Secure login
-* Session management
-* Authenticated API access
+**Bug resolved during this stage:** the `File` schema was initially missing its `folder` reference field, so newly created files couldn't be correctly nested under a folder. Fixed by adding `folder: { type: ObjectId, ref: 'Folder', default: null }`.
 
 ---
 
-# Phase 3 - Repository Management
+# 5. Stage 4 — Real-Time Socket Layer (Presence + File/Folder Broadcast)
 
-## Objective
+**Goal:** File/folder operations and online presence become visible live to every collaborator, not just the person who performed the action.
 
-Introduce repository creation and management functionality.
+* Socket.IO server attached to the same HTTP server as Express; JWT-based handshake authentication (`socketAuthMiddleware`)
+* Room model: one room per repository (`repo:<repositoryId>`), joined via `workspace:join`
+* `workspace.socket.js` — room lifecycle; `presence.socket.js` — in-memory presence tracking and `presence:update` broadcasts
+* REST controllers for file/folder create/rename/delete extended to emit their matching socket event after a successful write
+* Frontend: `useSocket` hook owns the socket connection lifecycle end-to-end; `usePresence`, `PresenceList`, `UserPresenceRow`
 
-### Tasks
-
-* Create repository
-* Fetch repositories
-* Delete repository
-* Repository ownership management
-* Repository dashboard integration
-
-### Deliverables
-
-* Repository creation workflow
-* Repository listing
-* Repository ownership support
+**Exit criteria:** Two browser sessions in the same repository see each other's file/folder changes and each other's online status without refreshing.
 
 ---
 
-# Phase 4 - Repository Workspace
+# 6. Stage 5 — Real-Time Collaborative Editing
 
-## Objective
+**Goal:** The Monaco editor supports live, multi-user text synchronization.
 
-Build the core workspace interface.
+* `editor.socket.js` — `editor:join` / `editor:change` → `editor:update` broadcast (never echoed back to the sender)
+* Frontend: `useEditor` hook — local keystrokes emit immediately over the socket for real-time feel, plus a debounced (~800ms) REST auto-save (`PUT /api/files/:fileId`) for persistence
+* `ignoreRemoteChange` ref guard to prevent a remotely-applied update from being re-broadcast as if it were a local edit
+* `EditorPane`, `TabBar`, `EditorPlaceHolder`, sync status indicator in `StatusBar`
 
-### Tasks
+**Exit criteria:** Two users with the same file open see each other's keystrokes appear live, and the content is durably saved regardless of socket connectivity.
 
-* Repository workspace layout
-* File explorer
-* Repository loading
-* Workspace navigation
-* Active file management
-
-### Deliverables
-
-* Functional repository workspace
-* Repository navigation system
+**Bug resolved during this stage:** a timing bug where `useEditor` initialized before `useSocket` had created the socket instance, so `getSocket()` returned `null` and the `editor:update` listener never registered. Fixed by having `useSocket` hold the socket instance in state and pass it down explicitly as a parameter, so dependent effects re-run once the real instance exists.
 
 ---
 
-# Phase 5 - File & Folder Management
+# 7. Stage 6 — UI/UX Polish & Design System Consolidation
 
-## Objective
+**Goal:** Bring the interface to a consistent, professional baseline before adding further features.
 
-Implement repository structure management.
+* Tailwind v4 migration, including moving custom design tokens into `@theme` CSS blocks (a v4 requirement, not a stylistic choice)
+* Shared component layer (`Button`, `Input`, `Modal`, `AvatarBadge`, `EmptyState`, `FileIcon`) to remove one-off styled elements
+* `AppShell`, `Navbar`, `Sidebar`, `StatusBar` finalized as the persistent layout frame
+* Various import-path and API base-URL mismatches identified and corrected across the frontend (`AuthContext` import paths, Axios base URL config)
 
-### Tasks
-
-* Create file
-* Delete file
-* Rename file
-* Create folder
-* Delete folder
-* Rename folder
-* Persist repository structure
-
-### Deliverables
-
-* Dynamic repository structure
-* Database persistence
-* Folder hierarchy support
+**Exit criteria:** The app has one consistent visual language end-to-end, with no ad-hoc inline styling competing with the design tokens.
 
 ---
 
-# Phase 6 - Code Editor Integration
+# 8. Stage 7 — Repository Invitation System *(current stage)*
 
-## Objective
+**Goal:** Replace ad-hoc, direct collaborator addition with a proper invite/accept flow.
 
-Introduce file editing capabilities.
+* `Invitation` model with `pending`/`accepted`/`rejected` status, 7-day expiry, and three purpose-built indexes (see `5_BackendSchema.md`)
+* `POST /api/invitations` (send), `GET /api/invitations/received` (list mine), `PUT /api/invitations/:id/accept`, `PUT /api/invitations/:id/reject`
+* Ownership, duplicate-invite, self-invite, and already-collaborator checks in the send flow; ownership and expiry checks in accept/reject
+* Frontend: `InviteForm`, `ReceivedInvitations`, `UserPresenceRow`, `useInvitations`, `invitation.service.js`
 
-### Tasks
-
-* Integrate code editor
-* File content loading
-* File content updates
-* Editor state management
-* Auto-save implementation
-
-### Deliverables
-
-* Functional code editor
-* Persistent file editing
+**Status:** Backend controller and routes are implemented; frontend hook and components are wired for the received-invitations list and the invite form. Remaining work: final UI polish on the invite/accept experience, and reconciling this flow with the older direct `addCollaborator` endpoint on `repositoryController` (see Section 10).
 
 ---
 
-# Phase 7 - Real-Time Collaboration
+# 9. Stage 8 — Repository Export *(next up)*
 
-## Objective
+**Goal:** Let a user download a repository's current file/folder structure as a ZIP archive.
 
-Enable live collaboration between repository members.
+* `utils/zipRepository.js` and `services/exportService.js` are scaffolded but currently empty — this is the next concrete implementation task.
+* Planned approach: walk the repository's `Folder`/`File` documents to reconstruct the tree in-memory, stream it into a ZIP (e.g. via `archiver` or a similar library), and serve it as a file download from a new authenticated endpoint (e.g. `GET /api/repositories/:id/export`).
+* Frontend `ExportButton` already exists in the workspace toolbar and simply needs to be wired to the new endpoint once it exists.
 
-### Tasks
-
-* Configure Socket.IO
-* Repository room management
-* User connection handling
-* Real-time code synchronization
-* Real-time file synchronization
-* Real-time folder synchronization
-
-### Deliverables
-
-* Multi-user collaboration
-* Live repository updates
-* Real-time workspace synchronization
+**Exit criteria:** A collaborator can click Export and receive a ZIP that, when extracted, reproduces the repository's folder/file structure and contents.
 
 ---
 
-# Phase 8 - Collaborator Management
+# 10. Cleanup Items Carried Forward
 
-## Objective
+These are known rough edges, explicitly tracked rather than silently left in the codebase:
 
-Introduce repository access control.
-
-### Tasks
-
-* Invite collaborators
-* Remove collaborators
-* Repository permissions
-* Repository membership validation
-
-### Deliverables
-
-* Shared repositories
-* Access-controlled collaboration
+* **Duplicate collaborator-add paths.** `repositoryController.addCollaborator` (direct, by email, owner-only) still exists alongside the newer invitation flow. Decide whether direct-add is kept as an owner shortcut or removed in favor of invitations being the only path.
+* **`Collaborator.js` model file is empty and unused.** Either remove it or repurpose it if per-collaborator roles are introduced later.
+* **No cascade delete for repositories.** Deleting a repository currently orphans its files, folders, and invitations at the database level.
+* **Socket handler placeholders.** `handlers/file.socket.js` and `handlers/folder.socket.js` exist as empty placeholder modules — real-time file/folder broadcasting is currently implemented directly inside the REST controllers instead. Either remove these placeholder files or formally document that this is the intended final architecture (per `2_TRD.md`, Section 3).
 
 ---
 
-# Phase 9 - Online Presence System
+# 11. Interview-Readiness Checklist (Cross-Reference)
 
-## Objective
+For placement/interview prep purposes, the stages above map directly onto talking points already prepared:
 
-Provide visibility into active collaborators.
-
-### Tasks
-
-* Online user tracking
-* Active member list
-* Connection monitoring
-* Presence updates
-
-### Deliverables
-
-* Live collaborator visibility
-* Workspace activity awareness
-
----
-
-# Phase 10 - Repository Export
-
-## Objective
-
-Allow repositories to be downloaded for local execution.
-
-### Tasks
-
-* Repository packaging
-* ZIP generation
-* Repository download
-* Folder structure preservation
-
-### Deliverables
-
-* Export repository feature
-* Local development support
-
----
-
-# Phase 11 - Testing & Stabilization
-
-## Objective
-
-Validate platform stability and resolve issues.
-
-### Tasks
-
-* Authentication testing
-* Repository testing
-* File operation testing
-* Socket testing
-* Permission testing
-* Export testing
-* Bug fixing
-
-### Deliverables
-
-* Stable release candidate
-* Reduced defects
-* Production-ready MVP
-
----
-
-# 3. MVP Scope
-
-The initial MVP release includes:
-
-* Authentication
-* Repository management
-* Repository workspace
-* File management
-* Folder management
-* Code editor
-* Real-time synchronization
-* Collaborator management
-* Repository export
-
-The MVP is considered complete once multiple users can collaborate inside the same repository and export projects successfully.
-
----
-
-# 4. Post-MVP Roadmap
-
-After MVP completion, development may continue with additional features.
-
-### Future Enhancements
-
-* Activity Logs
-* Repository History
-* Snapshot System
-* Version Recovery
-* Built-In Code Execution
-* AI Assistance
-* AI Code Review
-* AI Refactoring Tools
-* Workspace Analytics
-
-These features are outside the scope of the initial release.
-
----
-
-# 5. Success Criteria
-
-The implementation will be considered successful when:
-
-* Users can create repositories.
-* Collaborators can join repositories.
-* File operations are synchronized in real time.
-* Code changes are reflected instantly.
-* Repository state remains persistent.
-* Repositories can be exported and executed locally.
-
-At this stage, DevSync achieves its primary objective of providing a shared real-time repository workspace for collaborative software development.
+* Feature-Sliced Design → Stage 6
+* Socket singleton pattern (`useSocket` owning the connection lifecycle) → Stage 4/5
+* `ignoreRemoteChange` ref pattern → Stage 5
+* REST-as-source-of-truth / sockets-only-broadcast architecture rule → Stage 4 (TRD Section 3)
+* JWT reused across REST and socket auth → Stage 1 (TRD Section 4)
