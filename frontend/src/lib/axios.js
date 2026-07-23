@@ -26,7 +26,8 @@ const apiClient = axios.create({
    * This means every service call uses relative paths like '/api/auth/login'
    * — no hardcoded localhost URLs anywhere in service files.
    */
-  baseURL: 'http://localhost:5000/api',
+  baseURL:
+    import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api',
 
   // Request timeout — 15 seconds. Prevents the UI from hanging on dead requests.
   timeout: 15000,
